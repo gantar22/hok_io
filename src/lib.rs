@@ -1,9 +1,11 @@
 mod libs;
 mod ball_game;
 
+use bevy::asset::AssetContainer;
 use pyo3::prelude::*;
 use bevy::prelude::*;
-use pyo3::types::PyInt;
+use bevy_rapier2d::prelude::ExternalForce;
+use pyo3::types::{PyInt, PyTuple};
 use crate::libs::GamePlugin;
 
 #[pyclass]
@@ -31,13 +33,36 @@ impl AiController {
     }
 }
 
+#[derive(Resource)]
+struct InputPyObject(PyObject);
+
 #[pyfunction]
-fn ad_hok() -> PyResult<()> {
-    App::new()
+fn ad_hok(obj: PyObject) -> PyResult<()> {
+    let mut app = App::new();
+    app
         .add_plugins(DefaultPlugins)
-        .add_plugins(GamePlugin::default())
-        .run();
+        .add_systems(Update,use_input)
+        .add_plugins(GamePlugin::default());
+    app.world_mut().commands().insert_resource(InputPyObject(obj));
+    app.run();
     Ok(())
+}
+
+#[pyclass]
+struct PyVec{x : f32, y : f32}
+
+fn use_input(
+    input_py: ResMut<InputPyObject>,
+    mut force_q: Query<(&mut ExternalForce,&Transform)>
+) {
+    for (mut force, transform) in force_q.iter_mut() {
+        Python::with_gil(|py| {
+            let input = PyVec{ x: transform.translation.x, y: transform.translation.y };
+            let output = input_py.0.call(py,PyTuple::new(py,[input]).unwrap(),None).unwrap();
+            force.force.x = output.getattr(py,"x").unwrap().extract(py).unwrap();
+            force.force.y = output.getattr(py,"y").unwrap().extract(py).unwrap();
+        });
+    }
 }
 
 #[pyfunction]
